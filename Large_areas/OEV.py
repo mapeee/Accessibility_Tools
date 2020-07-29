@@ -137,7 +137,7 @@ for i in loops:
     #--memory management--#
     del df,gb,f
     gc.collect()
-
+    
 ###-------------------------###
 ###---PT querry 500-meter---###
 ###-------------------------###
