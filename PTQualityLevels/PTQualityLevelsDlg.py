@@ -36,9 +36,9 @@ class InfoFrame(wx.Frame):
         sizer.Add(self.label,0,wx.LEFT,10)
         sizer.AddSpacer(2)
         sizer.Add(wx.StaticText(self,label= _("Marcus Peter")),0,wx.LEFT,10)
-        sizer.Add(wx.StaticText(self,label= _("19.02.2026")),0,wx.LEFT,10)
+        sizer.Add(wx.StaticText(self,label= _("19.08.2026")),0,wx.LEFT,10)
         sizer.AddSpacer(2)
-        sizer.Add(wx.StaticText(self,label= _("Version 0.9: Beta")),0,wx.LEFT,10)
+        sizer.Add(wx.StaticText(self,label= _("Version 0.91: Beta")),0,wx.LEFT,10)
         sizer.AddSpacer(10)
         sizer.Add(self.button,0,wx.ALIGN_CENTER,5)
         sizer.AddSpacer(5)
@@ -80,6 +80,12 @@ class MyDialog(wx.Dialog):
         self.label_lines = wx.StaticText(self.panel, -1, _(""))
         self.label_stops = wx.StaticText(self.panel, -1, _(""))
         
+        # use case
+        self.button_fhh = wx.Button(self.panel, -1, _("FHH"))
+        self.button_umland = wx.Button(self.panel, -1, _("Umland"))
+        self.Bind(wx.EVT_BUTTON, self.OnCase, self.button_fhh)
+        self.Bind(wx.EVT_BUTTON, self.OnCase, self.button_umland)
+
         # time intervals
         self.label_time = wx.StaticText(self.panel, -1, _("Time reference"))
         self.label_day = wx.StaticText(self.panel, -1, _("Day"))
@@ -188,6 +194,16 @@ class MyDialog(wx.Dialog):
         addInParam.Check(False, defaultParam)
 
     def __do_layout(self):
+        # Use case
+        sb_case = wx.StaticBox(self.panel, -1, "")
+        sb_case.SetFont(wx.Font(8, wx.DEFAULT, wx.NORMAL, wx.BOLD))
+        sbSizer_case = wx.StaticBoxSizer(sb_case, wx.VERTICAL)
+        grid_case = wx.FlexGridSizer(rows=2, cols=2, hgap=50, vgap=1)
+        grid_case.Add(self.label_lines, flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL, border = 25)
+        grid_case.Add(self.button_fhh, flag = wx.EXPAND)
+        grid_case.Add(self.label_stops, flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL, border = 25)
+        grid_case.Add(self.button_umland, flag = wx.EXPAND)
+        sbSizer_case.Add(grid_case, 1, wx.ALL | wx.LEFT, 10)
         # Time intervals / Stop types
         sb_time = wx.StaticBox(self.panel, -1, "")
         sbSizer_time = wx.StaticBoxSizer(sb_time, wx.VERTICAL)
@@ -299,8 +315,7 @@ class MyDialog(wx.Dialog):
         # Outer box
         vbox = wx.BoxSizer(wx.VERTICAL)
         vbox.AddSpacer(15)
-        vbox.Add(self.label_lines, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 25)
-        vbox.Add(self.label_stops, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 25)
+        vbox.Add(sbSizer_case, proportion = 0, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 20)
         vbox.AddSpacer(15)
         vbox.Add(sbSizer_time, proportion = 0, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 20)
         vbox.AddSpacer(15)
@@ -317,9 +332,10 @@ class MyDialog(wx.Dialog):
         outer = wx.BoxSizer(wx.VERTICAL)
         outer.Add(self.panel, 1, wx.EXPAND)
         self.SetSizer(outer)
+        self.button_ok.SetFocus()
         
         self.Layout()
-        self.SetSize((600, 800))
+        self.SetSize((600, 1000))
         self.Centre()
 
     def __do_comboChoice(self):
@@ -425,6 +441,29 @@ class MyDialog(wx.Dialog):
     def OnAddTi(self,event):
         index = self.list_ti.InsertItem(self.list_ti.GetItemCount(), "00:00")
         self.list_ti.SetItem(index, 1, "00:00")
+        
+    def OnCase(self,event):
+        button = event.GetEventObject()
+        
+        # all
+        self.combo_day.SetSelection(0)
+        self.list_ti.DeleteAllItems()
+        row = self.list_ti.InsertItem(self.list_ti.GetItemCount(), "06:00")
+        self.combo_mode.SetSelection(1)
+        self.OnModeChanged(event)
+        self.cb_le.SetValue(True)
+        
+        # cases
+        if button == self.button_fhh:
+            self.list_ti.SetItem(row, 1, "21:00") # time interval
+            self.combo_bt.SetSelection(1) # HKAT_FHH
+        else:
+            self.list_ti.SetItem(row, 1, "20:00") # time interval
+            self.combo_bt.SetSelection(0) # HKAT
+            for row in range(self.dvlc_scml.GetItemCount()):
+                if self.dvlc_scml.GetValue(row, 0) == "XpressBus":
+                    self.dvlc_scml.SetValue("2", row, 1)
+                    break
         
     def OnCheckbox(self,event):
         if self.cb_clip.GetValue():
@@ -549,7 +588,7 @@ class MyDialog(wx.Dialog):
         while item != -1:
             self.list_ti.DeleteItem(item)
             item = self.list_ti.GetFirstSelected()
-            
+        
     def _get_scml_data(self):
         '''
         Erstelle pandas df mit den Werten aus den Spalten MODE und STOPTYPE
