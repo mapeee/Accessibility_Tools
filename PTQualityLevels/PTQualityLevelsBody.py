@@ -95,6 +95,7 @@ def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
         "V": [[sa1, "D"], [sa2, "E"], [sa3, "F"], [sa4, "G"], [sa5, "H"]],
         "VI": [[sa1, "E"], [sa2, "F"], [sa3, "G"], [sa4, "H"], [sa5, "I"]],
         "VII": [[sa1, "F"], [sa2, "G"], [sa3, "H"], [sa4, "I"], [sa5, "I"]],
+        "VIII": [[sa1, "Z1"], [sa2, "Z2"], [sa3, "Z3"], [sa4, "Z4"], [sa5, "Z5"]],
     }
     
     polygon_count = 0
@@ -243,6 +244,7 @@ def StopCategories(Visum):
         _Stops["nDEP"] = _Stops["nDEP"].fillna(0).astype(int)
         _Stops["DepHour"] = _Stops["nDEP"] / sum(end/60/60 - start/60/60 for start, end in intervals) # only use single interval and not scaled ones (each time interval twice)
         _Stops["DepHour"] = _Stops["DepHour"].round(0) # round departures
+        # _Stops["DepHour"] = (_Stops["DepHour"] + 0.2).floordiv(1).astype(int) # round departures (+0.15 means e.g. int(0.86 + 0.15) = int(1.01) = 1 but not 0)
         
         # Stop categories from StopType and departures in PTV Visum
         conditions = [
@@ -263,7 +265,10 @@ def StopCategories(Visum):
             (_Stops["DepHour"] >= list_sc[4]) & (_Stops[i[0]] == 3),
             (_Stops["DepHour"] >= list_sc[5]) & (_Stops[i[0]] == 1),
             (_Stops["DepHour"] >= list_sc[5]) & (_Stops[i[0]] == 2),
-            (_Stops["DepHour"] >= list_sc[5]) & (_Stops[i[0]] == 3)
+            (_Stops["DepHour"] >= list_sc[5]) & (_Stops[i[0]] == 3),
+            (_Stops["nDEP"] > 0) & (_Stops[i[0]] == 1),
+            (_Stops["nDEP"] > 0) & (_Stops[i[0]] == 2),
+            (_Stops["nDEP"] > 0) & (_Stops[i[0]] == 3)
             ]
     
         choices = [
@@ -273,6 +278,7 @@ def StopCategories(Visum):
             "III", "IV", "V",
             "IV", "V", "VI",
             "V", "VI", "VII",
+            "VI", "VII", "VIII",
             ]
         
         _Stops[i[2]] = np.select(conditions, choices, default = "X")
