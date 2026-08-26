@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import importlib.util
 import pandas as pd
 import re
+from VisumPy.wxHelpers import wxAttrIDButton
 from VisumPy.AddIn import AddIn, AddInState, AddInParameter
 _ = AddIn.gettext
 
@@ -80,11 +81,11 @@ class MyDialog(wx.Dialog):
         self.label_lines = wx.StaticText(self.panel, -1, _(""))
         self.label_stops = wx.StaticText(self.panel, -1, _(""))
         
-        # use case
+        # Template
         self.button_fhh = wx.Button(self.panel, -1, _("FHH"))
-        self.button_umland = wx.Button(self.panel, -1, _("Umland"))
-        self.Bind(wx.EVT_BUTTON, self.OnCase, self.button_fhh)
-        self.Bind(wx.EVT_BUTTON, self.OnCase, self.button_umland)
+        self.button_surround = wx.Button(self.panel, -1, _("Surroundings"))
+        self.Bind(wx.EVT_BUTTON, self.OnTemplate, self.button_fhh)
+        self.Bind(wx.EVT_BUTTON, self.OnTemplate, self.button_surround)
 
         # time intervals
         self.label_time = wx.StaticText(self.panel, -1, _("Time reference"))
@@ -150,10 +151,15 @@ class MyDialog(wx.Dialog):
         self.png_ql = wx.StaticBitmap(self.panel, -1, img_ql, (0, 0))
         
         # misc
-        self.label_le = wx.StaticText(self.panel, -1, _("End of line double"))
-        self.cb_le = wx.CheckBox(self.panel, -1, "")
         self.label_bt = wx.StaticText(self.panel, -1, _("Calculation type"))
         self.combo_bt = wx.ComboBox(self.panel, -1, "")
+        self.label_le = wx.StaticText(self.panel, -1, _("End of line double"))
+        self.cb_le = wx.CheckBox(self.panel, -1, "")
+        self.label_adddep = wx.StaticText(self.panel, -1, _("Add departures"))
+        self.button_adddep = wxAttrIDButton(self.panel, -1)
+        self.button_adddep.SetAttrType(False, True)
+        self.button_adddep.SetContainer(Visum.Net.Stops)
+        self.button_adddep.SetAttrID("...")
         self.label_scen = wx.StaticText(self.panel, -1, _("Scenario"))
         self.text_scen = wx.TextCtrl(self.panel, -1, value="/")
         self.label_poi = wx.StaticText(self.panel, -1, _("POI category"))
@@ -188,22 +194,12 @@ class MyDialog(wx.Dialog):
         self.__do_stoptypes()
         self.__set_properties()
         
-        defaultParam = {"ti" : False, "day" : False, "le" : False, "scml" : False, "clipfiles" : False,
+        defaultParam = {"ti" : False, "day" : False, "le" : False, "adddep" : False, "scml" : False, "clipfiles" : False,
                         "bt" : False, "scen" : False, "poi" : False, "poidel" : False, "clip" : False,
                         "mode" : False, "sa" : False, "sc" : False}
         addInParam.Check(False, defaultParam)
 
     def __do_layout(self):
-        # Use case
-        sb_case = wx.StaticBox(self.panel, -1, "")
-        sb_case.SetFont(wx.Font(8, wx.DEFAULT, wx.NORMAL, wx.BOLD))
-        sbSizer_case = wx.StaticBoxSizer(sb_case, wx.VERTICAL)
-        grid_case = wx.FlexGridSizer(rows=2, cols=2, hgap=50, vgap=1)
-        grid_case.Add(self.label_lines, flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL, border = 25)
-        grid_case.Add(self.button_fhh, flag = wx.EXPAND)
-        grid_case.Add(self.label_stops, flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL, border = 25)
-        grid_case.Add(self.button_umland, flag = wx.EXPAND)
-        sbSizer_case.Add(grid_case, 1, wx.ALL | wx.LEFT, 10)
         # Time intervals / Stop types
         sb_time = wx.StaticBox(self.panel, -1, "")
         sbSizer_time = wx.StaticBoxSizer(sb_time, wx.VERTICAL)
@@ -287,17 +283,19 @@ class MyDialog(wx.Dialog):
         grid_para.Add(self.combo_bt, pos=(0,1), flag = wx.ALIGN_LEFT | wx.EXPAND)
         grid_para.Add(self.label_le, pos=(1,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
         grid_para.Add(self.cb_le, pos=(1,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.label_scen, pos=(2,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.text_scen, pos=(2,1), flag = wx.ALIGN_LEFT | wx.EXPAND)
-        grid_para.Add(self.label_poi, pos=(3,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.combo_poi, pos=(3,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.label_poidel, pos=(4,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.cb_poidel, pos=(4,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.label_clip, pos=(5,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.cb_clip, pos=(5,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.listbox_clip, pos=(6,0), span=(1,2), flag= wx.EXPAND | wx.ALL)
-        grid_para.Add(self.button_add_clip, pos=(7,0), flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM)
-        grid_para.Add(self.button_remove_clip, pos=(7,1), flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM)
+        grid_para.Add(self.label_adddep, pos=(2,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.button_adddep, pos=(2,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.label_scen, pos=(3,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.text_scen, pos=(3,1), flag = wx.ALIGN_LEFT | wx.EXPAND)
+        grid_para.Add(self.label_poi, pos=(4,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.combo_poi, pos=(4,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.label_poidel, pos=(5,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.cb_poidel, pos=(5,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.label_clip, pos=(6,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.cb_clip, pos=(6,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.listbox_clip, pos=(7,0), span=(1,2), flag= wx.EXPAND | wx.ALL)
+        grid_para.Add(self.button_add_clip, pos=(8,0), flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM)
+        grid_para.Add(self.button_remove_clip, pos=(8,1), flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM)
         grid_para.AddGrowableCol(0)
         grid_para.AddGrowableCol(1)
         sbSizer_para.Add(grid_para, 1, wx.ALL | wx.EXPAND, 10)
@@ -311,11 +309,25 @@ class MyDialog(wx.Dialog):
         grid_end.Add(self.button_help, flag = wx.EXPAND)
         grid_end.Add(self.button_info, flag = wx.EXPAND)
         sbSizer_end.Add(grid_end, 1, wx.ALL | wx.ALIGN_CENTER, 10)
+        # Template
+        sb_template = wx.StaticBox(self.panel, -1, _("Templates"))
+        sb_template.SetFont(wx.Font(8, wx.DEFAULT, wx.NORMAL, wx.BOLD))
+        sbSizer_template = wx.StaticBoxSizer(sb_template, wx.VERTICAL)
+        grid_template = wx.FlexGridSizer(rows=2, cols=1, hgap=5, vgap=5)
+        grid_template.Add(self.button_fhh, flag = wx.EXPAND)
+        grid_template.Add(self.button_surround, flag = wx.EXPAND)
+        sbSizer_template.Add(grid_template, 1, wx.ALL | wx.ALIGN_CENTER, 10)
+        # End2
+        fgSizer_end2 = wx.FlexGridSizer(cols=2, hgap=10, vgap=5)
+        fgSizer_end2.Add(sbSizer_end, flag = wx.EXPAND)
+        fgSizer_end2.Add(sbSizer_template, flag = wx.EXPAND)
+        fgSizer_end2.AddGrowableCol(0, 1)
         
         # Outer box
         vbox = wx.BoxSizer(wx.VERTICAL)
         vbox.AddSpacer(15)
-        vbox.Add(sbSizer_case, proportion = 0, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 20)
+        vbox.Add(self.label_lines, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 25)
+        vbox.Add(self.label_stops, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 25)
         vbox.AddSpacer(15)
         vbox.Add(sbSizer_time, proportion = 0, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 20)
         vbox.AddSpacer(15)
@@ -323,7 +335,7 @@ class MyDialog(wx.Dialog):
         vbox.AddSpacer(15)
         vbox.Add(sbSizer_para, proportion = 0, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 20)
         vbox.AddSpacer(15)
-        vbox.Add(sbSizer_end, proportion = 0, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 20)
+        vbox.Add(fgSizer_end2, proportion = 0, flag = wx.EXPAND | wx.LEFT | wx.RIGHT, border = 20)
         vbox.AddSpacer(15)
 
         # do layout        
@@ -442,29 +454,6 @@ class MyDialog(wx.Dialog):
         index = self.list_ti.InsertItem(self.list_ti.GetItemCount(), "00:00")
         self.list_ti.SetItem(index, 1, "00:00")
         
-    def OnCase(self,event):
-        button = event.GetEventObject()
-        
-        # all
-        self.combo_day.SetSelection(0)
-        self.list_ti.DeleteAllItems()
-        row = self.list_ti.InsertItem(self.list_ti.GetItemCount(), "06:00")
-        self.combo_mode.SetSelection(1)
-        self.OnModeChanged(event)
-        self.cb_le.SetValue(True)
-        
-        # cases
-        if button == self.button_fhh:
-            self.list_ti.SetItem(row, 1, "21:00") # time interval
-            self.combo_bt.SetSelection(1) # HKAT_FHH
-        else:
-            self.list_ti.SetItem(row, 1, "20:00") # time interval
-            self.combo_bt.SetSelection(0) # HKAT
-            for row in range(self.dvlc_scml.GetItemCount()):
-                if self.dvlc_scml.GetValue(row, 0) == "XpressBus":
-                    self.dvlc_scml.SetValue("2", row, 1)
-                    break
-        
     def OnCheckbox(self,event):
         if self.cb_clip.GetValue():
             self.button_add_clip.Enable()
@@ -524,6 +513,22 @@ class MyDialog(wx.Dialog):
         addInParam.SaveParameter(param)
         self.OnExit(None)
         
+    def OnPOIBox(self, event):
+        text = self.combo_poi.GetValue()
+        font = self.combo_poi.GetFont()
+        if text == "New Category":
+            font.SetStyle(wx.FONTSTYLE_ITALIC)
+            self.combo_poi.SetFont(font)
+            self.combo_poi.SetForegroundColour(wx.Colour(150, 150, 150))
+            self.combo_poi.SetInsertionPointEnd()
+        else:
+            font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+            self.combo_poi.SetFont(font)
+            self.combo_poi.SetForegroundColour(wx.Colour(0, 0, 0))
+            self.combo_poi.SetInsertionPointEnd()
+        self.combo_poi.Refresh()
+        event.Skip()
+        
     def OnSpin_sa(self,event):
         list_sa = [self.spin1_sa.GetValue(), self.spin2_sa.GetValue(), self.spin3_sa.GetValue(),
                    self.spin4_sa.GetValue(), self.spin5_sa.GetValue()]
@@ -561,21 +566,29 @@ class MyDialog(wx.Dialog):
         self.spin5_sc.SetValue(list_sc[4])
         self.spin6_sc.SetValue(list_sc[5])
         
-    def OnPOIBox(self, event):
-        text = self.combo_poi.GetValue()
-        font = self.combo_poi.GetFont()
-        if text == "New Category":
-            font.SetStyle(wx.FONTSTYLE_ITALIC)
-            self.combo_poi.SetFont(font)
-            self.combo_poi.SetForegroundColour(wx.Colour(150, 150, 150))
-            self.combo_poi.SetInsertionPointEnd()
+    def OnTemplate(self,event):
+        button = event.GetEventObject()
+        
+        # all
+        self.combo_day.SetSelection(0)
+        self.list_ti.DeleteAllItems()
+        row = self.list_ti.InsertItem(self.list_ti.GetItemCount(), "06:00")
+        self.combo_mode.SetSelection(1)
+        self.OnModeChanged(event)
+        self.cb_le.SetValue(True)
+        self.button_adddep.SetAttrID("...")
+        
+        # templates
+        if button == self.button_fhh:
+            self.list_ti.SetItem(row, 1, "21:00") # time interval
+            self.combo_bt.SetSelection(1) # HKAT_FHH
         else:
-            font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-            self.combo_poi.SetFont(font)
-            self.combo_poi.SetForegroundColour(wx.Colour(0, 0, 0))
-            self.combo_poi.SetInsertionPointEnd()
-        self.combo_poi.Refresh()
-        event.Skip()
+            self.list_ti.SetItem(row, 1, "20:00") # time interval
+            self.combo_bt.SetSelection(0) # HKAT
+            for row in range(self.dvlc_scml.GetItemCount()):
+                if self.dvlc_scml.GetValue(row, 0) == "XpressBus":
+                    self.dvlc_scml.SetValue("2", row, 1)
+                    break
         
     def OnRemoveClip(self,event):
         selections = list(self.listbox_clip.GetSelections())
@@ -648,6 +661,9 @@ class MyDialog(wx.Dialog):
                 param["day"] = self.combo_day.GetSelection() # get index of selection
             param["bt"] = self.combo_bt.GetSelection() # get index of selection
             param["le"] = self.cb_le.GetValue()
+            param["adddep"] = self.button_adddep.GetAttrID()
+            if param["adddep"] == "...":
+                param["adddep"] = False
             param["clip"] = self.cb_clip.GetValue()
             if param["clip"] and not importlib.util.find_spec("geopandas"):
                 addIn.ReportMessage(_("Python module geopandas not installed"))

@@ -223,6 +223,11 @@ def StopCategories(Visum):
         ["NO", "NAME", rf"DISTINCT:STOPAREAS\DISTINCT:STOPPOINTS\DISTINCTACTIVE:SERVINGVEHJOURNEYS\LINEROUTE\LINE\{mode}",
          "XCOORD", "YCOORD"], True))
     StopsDF.columns = ["STOPNO", "STOPNAME", "MODES", "X", "Y"]
+    if param["adddep"]: # add additional journey count on stop-level 
+        AdddepDF = pd.DataFrame(Visum.Net.Stops.GetMultipleAttributes([param["adddep"]], True))
+        StopsDF["ADDDEP"] = AdddepDF.iloc[:, 0].values
+    else:
+        StopsDF["ADDDEP"] = 0
     
     # StopType_all for later difference between HKAT in different stoptype-level
     for i in [["StopType1", 1, "HKAT1"], ["StopType2", 2, "HKAT2"], ["StopType3", 3, "HKAT3"], ["StopType_all", None, "HKAT"]]:
@@ -241,6 +246,8 @@ def StopCategories(Visum):
         else: StopCounts = VJI[VJI["STOPTYPE"] == i[1]].groupby("STOPNO", as_index = False)["nDEP"].sum()
         StopCounts.columns = ["STOPNO", "nDEP"]
         _Stops = _Stops.merge(StopCounts, on="STOPNO", how="left")
+        if i[0] in ["StopType3", "StopType_all"]: # add additional journey count only for all and/or stops of type 3
+            _Stops["nDEP"] = _Stops["nDEP"] + _Stops["ADDDEP"]
         _Stops["nDEP"] = _Stops["nDEP"].fillna(0).astype(int)
         _Stops["DepHour"] = _Stops["nDEP"] / sum(end/60/60 - start/60/60 for start, end in intervals) # only use single interval and not scaled ones (each time interval twice)
         _Stops["DepHour"] = _Stops["DepHour"].round(0) # round departures
