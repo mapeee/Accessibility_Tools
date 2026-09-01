@@ -239,16 +239,16 @@ def StopCategories(Visum):
             df_mode = dict_scml[dict_scml["STOPTYPE"] == i[1]]
         df_mode = df_mode.set_index("MODE")["STOPTYPE"].to_dict()
         # get minimum StopType for each MODE at Stop (calculate PT Quality Level for each StopType and for all)
-        _Stops[i[0]] = _Stops['MODES'].apply(lambda x: min(df_mode.get(e, 10) for e in x.split(',')))
+        _Stops[i[0]] = _Stops['MODES'].apply(lambda x: min(df_mode.get(e, 3) for e in x.split(',')))
 
         # count StopDepartures in VHI for each stop and each StopType
         if i[0] == "StopType_all": StopCounts = VJI.groupby("STOPNO", as_index = False)["nDEP"].sum()
         else: StopCounts = VJI[VJI["STOPTYPE"] == i[1]].groupby("STOPNO", as_index = False)["nDEP"].sum()
         StopCounts.columns = ["STOPNO", "nDEP"]
         _Stops = _Stops.merge(StopCounts, on="STOPNO", how="left")
+        _Stops["nDEP"] = _Stops["nDEP"].fillna(0).astype(int)
         if i[0] in ["StopType3", "StopType_all"]: # add additional journey count only for all and/or stops of type 3
             _Stops["nDEP"] = _Stops["nDEP"] + _Stops["ADDDEP"]
-        _Stops["nDEP"] = _Stops["nDEP"].fillna(0).astype(int)
         _Stops["DepHour"] = _Stops["nDEP"] / sum(end/60/60 - start/60/60 for start, end in intervals) # only use single interval and not scaled ones (each time interval twice)
         _Stops["DepHour"] = _Stops["DepHour"].round(0) # round departures
         # _Stops["DepHour"] = (_Stops["DepHour"] + 0.2).floordiv(1).astype(int) # round departures (+0.15 means e.g. int(0.86 + 0.15) = int(1.01) = 1 but not 0)
