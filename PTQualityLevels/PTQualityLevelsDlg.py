@@ -585,6 +585,7 @@ class MyDialog(wx.Dialog):
         else:
             self.list_ti.SetItem(row, 1, "20:00") # time interval
             self.combo_bt.SetSelection(0) # HKAT
+            self.button_adddep.SetAttrID("ADDVAL3")
             for row in range(self.dvlc_scml.GetItemCount()):
                 if self.dvlc_scml.GetValue(row, 0) == "XpressBus":
                     self.dvlc_scml.SetValue("2", row, 1)
