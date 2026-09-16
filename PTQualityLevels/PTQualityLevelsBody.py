@@ -12,9 +12,24 @@ from VisumPy.helpers import SetMulti
 from VisumPy.AddIn import AddIn, AddInState, AddInParameter
 _ = AddIn.gettext
 
+'''Aufgaben
+- Vollständige Doku in Funktionen
+'''
 
 def Run(param):
-    Visum.Log(20480,_("Starting..."))
+    '''
+    SUMMARY.
+
+    Parameters
+    ----------
+    param : Dictionary
+        Übergabe von Parametern aus dem Dialog
+
+    Returns
+    -------
+    bool
+        False falls Fehler.
+    '''
     createPOICat(Visum)
     createUDA(Visum)
     Stops = StopCategories(Visum)
@@ -25,8 +40,6 @@ def Run(param):
         GeoJSONPath = ClipGeoJSON(Visum, GeoJSONPath)
     ImportPOI2Visum(Visum, GeoJSONPath, param["clip"])
     Visum.Graphic.Redraw()
-    
-    Visum.Log(20480,_("Finished!"))
     
 def ClipGeoJSON(Visum, _GeoJSONPath):
     '''
@@ -68,17 +81,19 @@ def CreateGeoJSON(Visum):
     # Add some attribute fields
     _GeoJSON.CreateField(ogr.FieldDefn("StopNo", ogr.OFTInteger))
     _GeoJSON.CreateField(ogr.FieldDefn("StopName", ogr.OFTString))
-    _GeoJSON.CreateField(ogr.FieldDefn("Category", ogr.OFTString))
+    _GeoJSON.CreateField(ogr.FieldDefn("Comment", ogr.OFTString))
     _GeoJSON.CreateField(ogr.FieldDefn("Scenario", ogr.OFTString))
-    _GeoJSON.CreateField(ogr.FieldDefn("Class", ogr.OFTString))
     _GeoJSON.CreateField(ogr.FieldDefn("Distance", ogr.OFTInteger))
+    _GeoJSON.CreateField(ogr.FieldDefn("StopType", ogr.OFTInteger))
+    _GeoJSON.CreateField(ogr.FieldDefn("StopCat", ogr.OFTString))
+    _GeoJSON.CreateField(ogr.FieldDefn("PTQL", ogr.OFTString))
     
     _GeoJSON.SyncToDisk()
     _data_source.FlushCache()
     return geojson_path, _data_source, _GeoJSON
 
 def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
-    HKAT = ["HKAT", "HKAT_FHH"][param["bt"]]
+    HKAT = ["HKAT", "HKAT_HVV"][param["bt"]]
     list_sa = param["sa"]
     scenario = param["scen"]
     sa1 = list_sa[0]
@@ -99,10 +114,10 @@ def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
     }
     
     polygon_count = 0
-    for category, distances in categories.items():
-        stops_cat = _stops[_stops[HKAT] == category]
-        stops_cat = list(zip(stops_cat["STOPNO"].astype(int), stops_cat["STOPNAME"], stops_cat["X"], stops_cat["Y"], stops_cat["DepHour"].astype(int)))
-        for StopNo, StopName, x, y, Dep in stops_cat:
+    for StopCat, distances in categories.items():
+        stops_cat = _stops[_stops[HKAT] == StopCat]
+        stops_cat = list(zip(stops_cat["STOPNO"].astype(int), stops_cat["STOPNAME"],stops_cat["StopType_all"], stops_cat["X"], stops_cat["Y"], stops_cat["DepHour"].astype(int)))
+        for StopNo, StopName, StopType, x, y, Dep in stops_cat:
             point = ogr.Geometry(ogr.wkbPoint)
             if "GCS_WGS_1984" in Visum.Net.AttValue("PROJECTIONDEFINITION"):
                 point.AddPoint(y, x)
@@ -115,15 +130,17 @@ def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
             else:
                 point.AddPoint(x, y)
         
-            for distance, PTClass in distances:
+            for distance, PTQL in distances:
                 # buffer
                 feature_def = _GeoJSON.GetLayerDefn()
                 feature = ogr.Feature(feature_def)
                 buffered_polygon = point.Buffer(distance)
                 feature.SetGeometry(buffered_polygon)
-                feature.SetField("Category", f"StopNo: {StopNo} - HstKat: {category} - AbStunde: {Dep}")
+                feature.SetField("Comment", f"StopNo: {StopNo} - AbStunde: {Dep}")
                 feature.SetField("Scenario", scenario)
-                feature.SetField("Class", PTClass)
+                feature.SetField("StopType", StopType)
+                feature.SetField("StopCat", StopCat)
+                feature.SetField("PTQL", PTQL)
                 feature.SetField("Distance", distance)
                 feature.SetField("StopNo", StopNo)
                 feature.SetField("StopName", f"{StopName} - {distance}m")
@@ -158,8 +175,11 @@ def ImportPOI2Visum(Visum, _GeoJSON, _clip):
         
         ShapeImport = Visum.IO.CreateImportShapeFilePara()
         ShapeImport.AddAttributeAllocation("StopName", "Name")
-        ShapeImport.AddAttributeAllocation("Class", "Code")
-        ShapeImport.AddAttributeAllocation("Category", "Comment")
+        ShapeImport.AddAttributeAllocation("PTQL", "Code")
+        ShapeImport.AddAttributeAllocation("Comment", "Comment")
+        ShapeImport.AddAttributeAllocation("StopType", "HTYP")
+        ShapeImport.AddAttributeAllocation("StopCat", "HKAT")
+        ShapeImport.AddAttributeAllocation("Distance", "Distanz")
         ShapeImport.AddAttributeAllocation("Scenario", "Szenario")
         ShapeImport.ObjectType = 9 # import as POI
         ShapeImport.SetAttValue("POIKEY", poiNO)
@@ -168,8 +188,11 @@ def ImportPOI2Visum(Visum, _GeoJSON, _clip):
     else:
         GeoJSONImport = Visum.IO.CreateImportGeoJSONPara()
         GeoJSONImport.AddAttributeAllocation("StopName", "Name")
-        GeoJSONImport.AddAttributeAllocation("Class", "Code")
-        GeoJSONImport.AddAttributeAllocation("Category", "Comment")
+        GeoJSONImport.AddAttributeAllocation("PTQL", "Code")
+        GeoJSONImport.AddAttributeAllocation("Comment", "Comment")
+        GeoJSONImport.AddAttributeAllocation("StopType", "HTYP")
+        GeoJSONImport.AddAttributeAllocation("StopCat", "HKAT")
+        GeoJSONImport.AddAttributeAllocation("Distance", "Distanz")
         GeoJSONImport.AddAttributeAllocation("Scenario", "Szenario")
         GeoJSONImport.ObjectType = 9 # import as POI
         GeoJSONImport.SetAttValue("POIKEY", poiNO)
@@ -250,8 +273,7 @@ def StopCategories(Visum):
         if i[0] in ["StopType3", "StopType_all"]: # add additional journey count only for all and/or stops of type 3
             _Stops["nDEP"] = _Stops["nDEP"] + _Stops["ADDDEP"]
         _Stops["DepHour"] = _Stops["nDEP"] / sum(end/60/60 - start/60/60 for start, end in intervals) # only use single interval and not scaled ones (each time interval twice)
-        _Stops["DepHour"] = _Stops["DepHour"].round(0) # round departures
-        # _Stops["DepHour"] = (_Stops["DepHour"] + 0.2).floordiv(1).astype(int) # round departures (+0.15 means e.g. int(0.86 + 0.15) = int(1.01) = 1 but not 0)
+        _Stops["DepHour"] = (_Stops["DepHour"] + 0.1).floordiv(1).astype(int) # round departures (+0.15 means e.g. int(0.86 + 0.15) = int(1.01) = 1 but not 0)
         
         # Stop categories from StopType and departures in PTV Visum
         conditions = [
@@ -294,8 +316,8 @@ def StopCategories(Visum):
         PTClass = _Stops[i[2]].tolist()
         SetMulti(Visum.Net.Stops, i[2], PTClass, True)
     
-    _Stops_FHH = _stopcat_fhh(Visum)
-    _Stops = _Stops.merge(_Stops_FHH[['STOPNO', 'HKAT_FHH']], on='STOPNO', how='left')
+    _Stops_HVV = _stopcat_hvv(Visum)
+    _Stops = _Stops.merge(_Stops_HVV[['STOPNO', 'HKAT_HVV']], on='STOPNO', how='left')
 
     return _Stops
 
@@ -312,7 +334,7 @@ def createUDA(Visum):
     poiNAME = param["poi"]
     poiNO = next((i.AttValue("NO") for i in Visum.Net.POICategories.GetAll if i.AttValue("NAME") == poiNAME),None)
     n = 0
-    for e, i in enumerate(["HKAT", "HKAT_FHH", "HKAT1", "HKAT2", "HKAT3"]):
+    for e, i in enumerate(["HKAT", "HKAT_HVV", "HKAT1", "HKAT2", "HKAT3"]):
         if Visum.Net.Stops.AttrExists(i):
             continue
         if e == 0:
@@ -320,9 +342,9 @@ def createUDA(Visum):
             uda = Visum.Net.Stops.Attributes.ItemByKey(i)
             uda.Comment = _("Stop category (PT quality levels)")
         elif e == 1:
-            Visum.Net.Stops.AddUserDefinedAttribute(i, "Haltestellenkategorie in FHH", "Haltestellenkategorie in FHH", 5)
+            Visum.Net.Stops.AddUserDefinedAttribute(i, "Haltestellenkategorie im hvv", "Haltestellenkategorie im hvv", 5)
             uda = Visum.Net.Stops.Attributes.ItemByKey(i)
-            uda.Comment = _("Stop category in FHH (PT quality levels)")
+            uda.Comment = _("Stop category 'hvv rule' (PT quality levels)")
         else:
             Visum.Net.Stops.AddUserDefinedAttribute(i, f"Haltestellenkategorie HstTyp {i[-1]}", f"Haltestellenkategorie HstTyp {i[-1]}", 5)
             uda = Visum.Net.Stops.Attributes.ItemByKey(i)
@@ -330,17 +352,26 @@ def createUDA(Visum):
         uda.MaxStringLen = 4
         uda.StringValueDefault = "X"
         n+=1
-    if not Visum.Net.POICategories.ItemByKey(poiNO).POIs.AttrExists("Szenario"):
-        Visum.Net.POICategories.ItemByKey(poiNO).POIs.AddUserDefinedAttribute("Szenario", "Szenario", "Szenario", 5)
-        uda = Visum.Net.POICategories.ItemByKey(poiNO).POIs.Attributes.ItemByKey("Szenario")
-        uda.Comment = _("PT Qualities: Scenario")
-        uda.MaxStringLen = 30
-        uda.StringValueDefault = "X"
-        n+=1
+    for uda_name in ["Szenario", "HKAT"]:
+        if not Visum.Net.POICategories.ItemByKey(poiNO).POIs.AttrExists(uda_name):
+            Visum.Net.POICategories.ItemByKey(poiNO).POIs.AddUserDefinedAttribute(uda_name, uda_name, uda_name, 5)
+            uda = Visum.Net.POICategories.ItemByKey(poiNO).POIs.Attributes.ItemByKey(uda_name)
+            uda.Comment = _("PT Qualities: %s") % uda_name
+            uda.MaxStringLen = 30
+            uda.StringValueDefault = "X"
+            n+=1
+    for uda_name in ["Distanz", "HTYP"]:
+        if not Visum.Net.POICategories.ItemByKey(poiNO).POIs.AttrExists(uda_name):
+            Visum.Net.POICategories.ItemByKey(poiNO).POIs.AddUserDefinedAttribute(uda_name, uda_name, uda_name, 1)
+            uda = Visum.Net.POICategories.ItemByKey(poiNO).POIs.Attributes.ItemByKey(uda_name)
+            uda.Comment = _("PT Qualities: %s") % uda_name
+            uda.ValueMax = 1500
+            uda.ValueDefault = -1
+            n+=1
     if n > 0:
         Visum.Log(20480,_("%s UDA added (to POI Category: %s)") %(str(n), poiNAME))
         
-def _stopcat_fhh(Visum):
+def _stopcat_hvv(Visum):
     _StopsDF = pd.DataFrame(Visum.Net.Stops.GetMultipleAttributes(
         ["NO", "HKAT", "HKAT1", "HKAT2", "HKAT3"], True))
     _StopsDF.columns = ["STOPNO", "HKAT", "HKAT1", "HKAT2", "HKAT3"]
@@ -351,14 +382,14 @@ def _stopcat_fhh(Visum):
     # Convert to integers
     _StopsDF_int = _StopsDF.replace(roman_to_int).infer_objects(copy=False)
     # Calculate new column
-    # in FHH: HKAT is (best from HKAT1 to HKAT3 minus 1) if worse than HKAT over all
-    _StopsDF['HKAT_FHH'] = (_StopsDF_int[['HKAT1', 'HKAT2', 'HKAT3']].min(axis=1) - 1).clip(lower=1)
-    _StopsDF['HKAT_FHH'] = _StopsDF_int[['HKAT']].join(_StopsDF['HKAT_FHH']).max(axis=1)
+    # in hvv: HKAT is (best from HKAT1 to HKAT3 minus 1) if worse than HKAT over all
+    _StopsDF['HKAT_HVV'] = (_StopsDF_int[['HKAT1', 'HKAT2', 'HKAT3']].min(axis=1) - 1).clip(lower=1)
+    _StopsDF['HKAT_HVV'] = _StopsDF_int[['HKAT']].join(_StopsDF['HKAT_HVV']).max(axis=1)
     # Convert back to Roman
-    _StopsDF['HKAT_FHH'] = _StopsDF['HKAT_FHH'].map(int_to_roman)
+    _StopsDF['HKAT_HVV'] = _StopsDF['HKAT_HVV'].map(int_to_roman)
 
-    _stopcat_fhh = _StopsDF['HKAT_FHH'].tolist()
-    SetMulti(Visum.Net.Stops, 'HKAT_FHH', _stopcat_fhh, True)
+    _stopcat_hvv = _StopsDF['HKAT_HVV'].tolist()
+    SetMulti(Visum.Net.Stops, 'HKAT_HVV', _stopcat_hvv, True)
 
     return _StopsDF
 
@@ -382,5 +413,6 @@ else:
         defaultParam = {"" : False}
         param = addInParam.Check(True, defaultParam)
         Run(param)
+        addIn.ReportMessage(_("PT Quality levels: created!"), 2)
     except:
         addIn.HandleException(addIn.TemplateText.MainApplicationError)
