@@ -371,7 +371,7 @@ class MyDialog(wx.Dialog):
         self.combo_day.SetSelection(0)
         # calculation type
         self.combo_bt.Clear()
-        self.combo_bt.Append(["HKAT", "HKAT FHH"])
+        self.combo_bt.Append(["HKAT", "HKAT hvv"])
         self.combo_bt.SetSelection(1)
         # poi category
         self.combo_poi.Clear()
@@ -577,19 +577,14 @@ class MyDialog(wx.Dialog):
         self.OnModeChanged(event)
         self.cb_le.SetValue(True)
         self.button_adddep.SetAttrID("...")
+        self.combo_bt.SetSelection(1) # HKAT_HVV
         
         # templates
         if button == self.button_fhh:
             self.list_ti.SetItem(row, 1, "21:00") # time interval
-            self.combo_bt.SetSelection(1) # HKAT_FHH
         else:
             self.list_ti.SetItem(row, 1, "20:00") # time interval
-            self.combo_bt.SetSelection(0) # HKAT
             self.button_adddep.SetAttrID("ADDVAL3")
-            for row in range(self.dvlc_scml.GetItemCount()):
-                if self.dvlc_scml.GetValue(row, 0) == "XpressBus":
-                    self.dvlc_scml.SetValue("2", row, 1)
-                    break
         
     def OnRemoveClip(self,event):
         selections = list(self.listbox_clip.GetSelections())
