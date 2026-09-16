@@ -39,7 +39,7 @@ class InfoFrame(wx.Frame):
         sizer.Add(wx.StaticText(self,label= _("Marcus Peter")),0,wx.LEFT,10)
         sizer.Add(wx.StaticText(self,label= _("19.08.2026")),0,wx.LEFT,10)
         sizer.AddSpacer(2)
-        sizer.Add(wx.StaticText(self,label= _("Version 0.91: Beta")),0,wx.LEFT,10)
+        sizer.Add(wx.StaticText(self,label= _("Version 1.0.")),0,wx.LEFT,10)
         sizer.AddSpacer(10)
         sizer.Add(self.button,0,wx.ALIGN_CENTER,5)
         sizer.AddSpacer(5)
@@ -151,8 +151,8 @@ class MyDialog(wx.Dialog):
         self.png_ql = wx.StaticBitmap(self.panel, -1, img_ql, (0, 0))
         
         # misc
-        self.label_bt = wx.StaticText(self.panel, -1, _("Calculation type"))
-        self.combo_bt = wx.ComboBox(self.panel, -1, "")
+        self.label_ct = wx.StaticText(self.panel, -1, _("Calculation type"))
+        self.combo_ct = wx.ComboBox(self.panel, -1, "")
         self.label_le = wx.StaticText(self.panel, -1, _("End of line double"))
         self.cb_le = wx.CheckBox(self.panel, -1, "")
         self.label_adddep = wx.StaticText(self.panel, -1, _("Add departures"))
@@ -162,7 +162,7 @@ class MyDialog(wx.Dialog):
         self.button_adddep.SetAttrID("...")
         self.label_scen = wx.StaticText(self.panel, -1, _("Scenario"))
         self.text_scen = wx.TextCtrl(self.panel, -1, value="/")
-        self.label_poi = wx.StaticText(self.panel, -1, _("POI category"))
+        self.label_poi = wx.StaticText(self.panel, -1, _("POI-category"))
         self.combo_poi = wx.ComboBox(self.panel, -1, "")
         self.label_poidel = wx.StaticText(self.panel, -1, _("Delete existing POI"))
         self.cb_poidel = wx.CheckBox(self.panel, -1, "")
@@ -195,7 +195,7 @@ class MyDialog(wx.Dialog):
         self.__set_properties()
         
         defaultParam = {"ti" : False, "day" : False, "le" : False, "adddep" : False, "scml" : False, "clipfiles" : False,
-                        "bt" : False, "scen" : False, "poi" : False, "poidel" : False, "clip" : False,
+                        "ct" : False, "scen" : False, "poi" : False, "poidel" : False, "clip" : False,
                         "mode" : False, "sa" : False, "sc" : False}
         addInParam.Check(False, defaultParam)
 
@@ -279,8 +279,8 @@ class MyDialog(wx.Dialog):
         sb_para.SetFont(wx.Font(8, wx.DEFAULT, wx.NORMAL, wx.BOLD))
         sbSizer_para = wx.StaticBoxSizer(sb_para, wx.VERTICAL)
         grid_para = wx.GridBagSizer(vgap=7, hgap=10)
-        grid_para.Add(self.label_bt, pos=(0,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
-        grid_para.Add(self.combo_bt, pos=(0,1), flag = wx.ALIGN_LEFT | wx.EXPAND)
+        grid_para.Add(self.label_ct, pos=(0,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
+        grid_para.Add(self.combo_ct, pos=(0,1), flag = wx.ALIGN_LEFT | wx.EXPAND)
         grid_para.Add(self.label_le, pos=(1,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
         grid_para.Add(self.cb_le, pos=(1,1), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
         grid_para.Add(self.label_adddep, pos=(2,0), flag = wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL)
@@ -370,9 +370,9 @@ class MyDialog(wx.Dialog):
             self.combo_day.Enable(False)
         self.combo_day.SetSelection(0)
         # calculation type
-        self.combo_bt.Clear()
-        self.combo_bt.Append(["HKAT", "HKAT hvv"])
-        self.combo_bt.SetSelection(1)
+        self.combo_ct.Clear()
+        self.combo_ct.Append(["HKAT", "HKAT hvv"])
+        self.combo_ct.SetSelection(1)
         # poi category
         self.combo_poi.Clear()
         if not Visum.Net.POICategories.Count:
@@ -577,7 +577,7 @@ class MyDialog(wx.Dialog):
         self.OnModeChanged(event)
         self.cb_le.SetValue(True)
         self.button_adddep.SetAttrID("...")
-        self.combo_bt.SetSelection(1) # HKAT_HVV
+        self.combo_ct.SetSelection(1) # HKAT_HVV
         
         # templates
         if button == self.button_fhh:
@@ -655,7 +655,7 @@ class MyDialog(wx.Dialog):
                 param["day"] = self.combo_day.GetValue()
             else:
                 param["day"] = self.combo_day.GetSelection() # get index of selection
-            param["bt"] = self.combo_bt.GetSelection() # get index of selection
+            param["ct"] = self.combo_ct.GetSelection() # get index of selection
             param["le"] = self.cb_le.GetValue()
             param["adddep"] = self.button_adddep.GetAttrID()
             if param["adddep"] == "...":

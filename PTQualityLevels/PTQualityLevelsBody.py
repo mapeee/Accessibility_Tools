@@ -12,14 +12,18 @@ from VisumPy.helpers import SetMulti
 from VisumPy.AddIn import AddIn, AddInState, AddInParameter
 _ = AddIn.gettext
 
-'''Aufgaben
-- Vollständige Doku in Funktionen
-'''
+
 
 def Run(param):
     '''
-    SUMMARY.
-
+    1. Erstelle POI-Kategorie falls noch nicht vorhanden (return Nummer dieser Kat.).
+    2. Erstelle fehlende BDA
+    3. Erzeuge HstKat auf Ebene der Haltestellen, schreibe diese an Haltestellen und liefere DataFrame mit diesen
+    4. Erzeuge temporäre GeoJSON mit allen notwendigen Attributen
+    5. Erstelle Polygone
+    5.1 Schneide diese Polygone aus, falls gewünscht (clip)
+    6. Importiere Polygone nach Visum
+    
     Parameters
     ----------
     param : Dictionary
@@ -30,25 +34,40 @@ def Run(param):
     bool
         False falls Fehler.
     '''
-    createPOICat(Visum)
-    createUDA(Visum)
-    Stops = StopCategories(Visum)
-    GeoJSONPath, DataSource, GeoJSONDef = CreateGeoJSON(Visum)
-    if not CreatePolygons(Visum, GeoJSONDef, Stops, DataSource):
-        return False
-    if param["clip"]:
-        GeoJSONPath = ClipGeoJSON(Visum, GeoJSONPath)
-    ImportPOI2Visum(Visum, GeoJSONPath, param["clip"])
+    Visum.Log(20480, _("Calculate stop categories for %s stops") %(str(Visum.Net.Stops.CountActive)))
+    
+    # Parameter
+    poiNAME = param["poi"]
+    poiClip = param["clip"]
+    
+    poiNO = createPOICat(poiNAME)
+    createUDA(poiNAME, poiNO)
+    Stops = StopCategories()
+    GeoJSONPath, GeoJSONDef, DataSource = CreateGeoJSON()
+    CreatePolygons(GeoJSONDef, Stops, DataSource)
+    if poiClip:
+        GeoJSONPath = ClipGeoJSON(GeoJSONPath)
+    ImportPOI2Visum(GeoJSONPath, poiClip, poiNO)
     Visum.Graphic.Redraw()
     
-def ClipGeoJSON(Visum, _GeoJSONPath):
+def ClipGeoJSON(_GeoJSONPath):
     '''
     Schneide bestehende GeoJSON-Datei auf Basis gelieferter Geometrien aus.
     Speicher die ausgeschnittenen Polygone unter neuem Pfad und liefere diesen zurück.
+
+    Parameters
+    ----------
+    geoj_GeoJSONPathson_path : String / Path
+        path of temporary GeoJSON File
+
+    Returns
+    -------
+    cliped_GeoJSON_path : String / Path
+        path of clipped temporary GeoJSON File
     '''
     clipGeoJSON = param["clipfiles"]
     Visum.Log(20480, _("Start clipping polygons"))
-    import geopandas as gpd
+    import geopandas as gpd # not at beginning, because often not installed
     _GeoJSONGpd = gpd.read_file(_GeoJSONPath)
     for i in clipGeoJSON:
         _clipGeoJSONGpd = gpd.read_file(i)
@@ -62,23 +81,36 @@ def ClipGeoJSON(Visum, _GeoJSONPath):
     Visum.Log(20480, _("Polygons cut out"))
     return cliped_GeoJSON_path
 
-def CreateGeoJSON(Visum):  
+def CreateGeoJSON():  
     '''
-    Erstelle die in PTV Visum zu importierende GeoJSON als temporäres File (geht nach dem Herunterfahren verloren)
+    1. getting temporäres Speicherverzeichnis
+    2. Erzeuge dort eine (temporäre) GeoJSON
+    3. Füge notwendige Felder / Attribute zur GeoJSON hinzu
+
+    Returns
+    -------
+    geojson_path : String / Path
+        path of temporary GeoJSON File
+    _GeoJSON : GeoJSON
+        GeoJSON File
+    _DataSource : data driver
+        DESCRIPTION.
     '''
+    
+    # Getting temp path
     temp_dir = tempfile.mkdtemp()
     geojson_path  = os.path.join(temp_dir, "buffered_polygons.geojson")
     Visum.Log(20480, _("Temporary GeoJSON path: %s") %(geojson_path))
-    
+    # Create GeoJSON
     driver = ogr.GetDriverByName("GeoJSON")
-    spatial_ref = osr.SpatialReference()
-    spatial_ref.ImportFromEPSG(25832) # EPSG:25832 (ETRS89 / UTM zone 32N)
     if os.path.exists(geojson_path):
         driver.DeleteDataSource(geojson_path)
-    _data_source = driver.CreateDataSource(geojson_path)
-    _GeoJSON = _data_source.CreateLayer("buffered_polygons", srs=spatial_ref, geom_type=ogr.wkbPolygon, options=["RFC7946=YES"])
+    _DataSource = driver.CreateDataSource(geojson_path)
+    spatial_ref = osr.SpatialReference()
+    spatial_ref.ImportFromEPSG(25832) # EPSG:25832 (ETRS89 / UTM zone 32N)
+    _GeoJSON = _DataSource.CreateLayer("buffered_polygons", srs=spatial_ref, geom_type=ogr.wkbPolygon, options=["RFC7946=YES"])
     
-    # Add some attribute fields
+    # Add attribute fields
     _GeoJSON.CreateField(ogr.FieldDefn("StopNo", ogr.OFTInteger))
     _GeoJSON.CreateField(ogr.FieldDefn("StopName", ogr.OFTString))
     _GeoJSON.CreateField(ogr.FieldDefn("Comment", ogr.OFTString))
@@ -89,13 +121,39 @@ def CreateGeoJSON(Visum):
     _GeoJSON.CreateField(ogr.FieldDefn("PTQL", ogr.OFTString))
     
     _GeoJSON.SyncToDisk()
-    _data_source.FlushCache()
-    return geojson_path, _data_source, _GeoJSON
+    _DataSource.FlushCache()
+    return geojson_path, _GeoJSON, _DataSource
 
-def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
-    HKAT = ["HKAT", "HKAT_HVV"][param["bt"]]
+def CreatePolygons(_GeoJSON, _Stops, _DataSource):
+    '''
+    1. Ermittle Parameter, die nur hier benötigt werden.
+    2. Erstelle Dict mit Zuordnung der ÖVGK zu den HstKat in Abhängigkeit von Einzugsbereichen (sa)
+    3. Loop über alle HstKategorien
+    3.1 Erhalte alle Stops dieser HstKat
+    3.2 Loop über die Stops je HstKat
+    3.3 Erstelle Geometrie für jeden Einzugsbereich je Stop je HstKat
+    3.4 Befülle diese Geometrien mit Attributen
+
+    Parameters
+    ----------
+    _GeoJSON : GeoJSON
+        GeoJSON File
+    _Stops : pandas DataFrame
+        Beinhaltet römische HKat je Stop (über alle, 1-3 und nach 'hvv Regel')
+    _DataSource : data driver
+        DESCRIPTION.
+
+    Raises
+    ------
+    ValueError
+        Fehler, falls keine Polygone erzeugt wurden.
+    '''
+    # Parameter
+    ct = param["ct"]
     list_sa = param["sa"]
     scenario = param["scen"]
+
+    HKAT = ["HKAT", "HKAT_HVV"][ct]
     sa1 = list_sa[0]
     sa2 = list_sa[1]
     sa3 = list_sa[2]
@@ -114,8 +172,8 @@ def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
     }
     
     polygon_count = 0
-    for StopCat, distances in categories.items():
-        stops_cat = _stops[_stops[HKAT] == StopCat]
+    for StopCat, distancesPTQL in categories.items():
+        stops_cat = _Stops[_Stops[HKAT] == StopCat]
         stops_cat = list(zip(stops_cat["STOPNO"].astype(int), stops_cat["STOPNAME"],stops_cat["StopType_all"], stops_cat["X"], stops_cat["Y"], stops_cat["DepHour"].astype(int)))
         for StopNo, StopName, StopType, x, y, Dep in stops_cat:
             point = ogr.Geometry(ogr.wkbPoint)
@@ -130,7 +188,7 @@ def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
             else:
                 point.AddPoint(x, y)
         
-            for distance, PTQL in distances:
+            for distance, PTQL in distancesPTQL:
                 # buffer
                 feature_def = _GeoJSON.GetLayerDefn()
                 feature = ogr.Feature(feature_def)
@@ -148,19 +206,29 @@ def CreatePolygons(Visum ,_GeoJSON, _stops, _data_source):
                 _GeoJSON.CreateFeature(feature)
                 feature = None  # Free memory
                 polygon_count+=1
-                
-    _data_source.FlushCache()
-    if not polygon_count:
-        Visum.Log(12288, _("No active VehicleJourneys at active Stops in Timeintervals or at valid day"))
-        return False
-    Visum.Log(20480, _("%s Polygons created") %(str(polygon_count)))
-    return True
     
-def ImportPOI2Visum(Visum, _GeoJSON, _clip):
+    _DataSource.FlushCache()
+    if not polygon_count:
+        raise ValueError(_("No active VehicleJourneys at active Stops in Timeintervals or at valid day"))
+    Visum.Log(20480, _("%s Polygons created") %(str(polygon_count)))
+    
+def ImportPOI2Visum(_GeoImport, _clip, poiNO):
     '''
-    Importiere Polygone nach PTV Visum
+    SUMMARY.
+
+    Parameters
+    ----------
+    _GeoImport : GeoJSON / Shape File
+        Import-File mit Geometrien
+    _clip : Bool
+        True, falls Clip-Polygone verwendet werden sollen.
+    poiNO : Integer
+        Neue POI-Kategorie
+
+    Returns
+    -------
+    None
     '''
-    poiNO = next((i.AttValue("NO") for i in Visum.Net.POICategories.GetAll if i.AttValue("NAME") == param["poi"]),None)
     deloldPOI = param["poidel"]
     
     if deloldPOI:
@@ -169,8 +237,8 @@ def ImportPOI2Visum(Visum, _GeoJSON, _clip):
     if _clip:
         # import als Shape, da clip geojson nicht in spezifikation RFC7946 gespeichert werden kann und dann fehlerhaft importiert wird.
         import geopandas as gpd
-        _Shape = _GeoJSON.with_suffix(".shp")
-        _GeoJSON_data = gpd.read_file(_GeoJSON)
+        _Shape = _GeoImport.with_suffix(".shp")
+        _GeoJSON_data = gpd.read_file(_GeoImport)
         _GeoJSON_data.to_file(_Shape, driver='ESRI Shapefile')
         
         ShapeImport = Visum.IO.CreateImportShapeFilePara()
@@ -196,17 +264,33 @@ def ImportPOI2Visum(Visum, _GeoJSON, _clip):
         GeoJSONImport.AddAttributeAllocation("Scenario", "Szenario")
         GeoJSONImport.ObjectType = 9 # import as POI
         GeoJSONImport.SetAttValue("POIKEY", poiNO)
-        Visum.IO.ImportGeoJSON(_GeoJSON, GeoJSONImport)
+        Visum.IO.ImportGeoJSON(_GeoImport, GeoJSONImport)
 
-def StopCategories(Visum):
+def StopCategories():
     '''
+    1. Lese Parameter, die nur hier verwendet werden.
+    2.1 Wähle nur FahrplanFahrten an vorgegebenen Tagen
+    2.2 Wähle nur FahrplanFahrten in vorgegebenen Zeitfenstern
+    3. Ergänze HstTyp an FahrplanFahrten über MODE (VSys oder Oberlinie)
+    4. Erzeuge Zähler (nDEP) an FahrplanFahrtElementen
+    5. Erstelle DataFrame mit aktiven Stops
+    6. Verschneide Stops mit FahrplanFahrtElementen
+    7. Erstelle HstKategorie in Abhängigkeit von mittleren Abfahrten je Stunde
+    8. Erstelle HstKategorie nach 'hvv Regel'
+
+    Returns
+    -------
+    _Stops : pandas DataFrame
+        Beinhaltet römische HKat je Stop (über alle, 1-3 und nach 'hvv Regel')
     '''
-    Visum.Log(20480, _("Calculate stop categories for %s stops") %(str(Visum.Net.Stops.CountActive)))
+    
+    # Parameter
     intervals = param["ti"]
     lineend = param["le"]
     day = param["day"]
     list_sc = param["sc"]
     dict_scml = param["scml"]
+    adddep = param["adddep"] # add additional journey count on stop-level from Stop-Attribute
     mode = ["TSYSCODE", "MAINLINENAME"][param["mode"]]
 
     # chose only VJ on valid days (valid day or daily (all))
@@ -217,6 +301,7 @@ def StopCategories(Visum):
     else:
         validday = "ISVALID(1)"
     
+    # Read VJI
     VJI = pd.DataFrame(Visum.Net.VehicleJourneyItems.GetMultipleAttributes(
         ["VEHJOURNEYNO", "INDEX", "Dep",r"TIMEPROFILEITEM\LINEROUTEITEM\STOPPOINT\STOPAREA\STOPNO",
          rf"VEHJOURNEY\LINEROUTE\LINE\{mode}", r"COUNT:COUPLEDVEHJOURNEYITEMS", validday], True))
@@ -229,25 +314,25 @@ def StopCategories(Visum):
     (VJI['STOPNO'] == VJI['STOPNO'].shift(1)) & 
     (VJI['VJNO'] == VJI['VJNO'].shift(1)))]
     
-    # Coupled sections and line ends
-    VJI["nDEP"] = 1 / VJI["CHAINED"] # Coupled sections reducing the weight of departures
-    if lineend: VJI.loc[VJI["INDEX"] == 1, "nDEP"] *= 2 # Count first index *2 for missing arrivals (not = 2 for chained VJ)
-    
-    # Selecting VehJour in time intervals; double the intervals for the next morning (also for weekcalendar due to trips after 24:00)
+    # Selecting VehJourneys by time intervals; double the intervals for the next morning (also for weekcalendar due to trips after 24:00)
     scaled_intervals = [[start, end] for start, end in intervals] + [[start + 86400, end + 86400] for start, end in intervals] # 86400 seconds a day
     VJI = VJI[VJI["DEP"].apply(lambda x: any(start <= x <= end for start, end in scaled_intervals))]
     VJI = VJI.reset_index(drop=True)
-
+    
     # Adding StopTypes to VJI
     VJI = VJI.merge(dict_scml[["MODE", "STOPTYPE"]], on="MODE", how="left")
-
-    # get corresponding Stops
+    
+    # Create nDep, coupled sections and line ends
+    VJI["nDEP"] = 1 / VJI["CHAINED"] # Coupled sections reducing the weight of departures
+    if lineend: VJI.loc[VJI["INDEX"] == 1, "nDEP"] *= 2 # Count first index *2 for missing arrivals (not = 2 for chained VJ)
+    
+    # get Stops
     StopsDF = pd.DataFrame(Visum.Net.Stops.GetMultipleAttributes(
         ["NO", "NAME", rf"DISTINCT:STOPAREAS\DISTINCT:STOPPOINTS\DISTINCTACTIVE:SERVINGVEHJOURNEYS\LINEROUTE\LINE\{mode}",
          "XCOORD", "YCOORD"], True))
     StopsDF.columns = ["STOPNO", "STOPNAME", "MODES", "X", "Y"]
-    if param["adddep"]: # add additional journey count on stop-level 
-        AdddepDF = pd.DataFrame(Visum.Net.Stops.GetMultipleAttributes([param["adddep"]], True))
+    if adddep: # add additional journey count on stop-level  from Stop-Attribute
+        AdddepDF = pd.DataFrame(Visum.Net.Stops.GetMultipleAttributes([adddep], True))
         StopsDF["ADDDEP"] = AdddepDF.iloc[:, 0].values
     else:
         StopsDF["ADDDEP"] = 0
@@ -316,81 +401,117 @@ def StopCategories(Visum):
         PTClass = _Stops[i[2]].tolist()
         SetMulti(Visum.Net.Stops, i[2], PTClass, True)
     
-    _Stops_HVV = _stopcat_hvv(Visum)
+    # create StopCat on 'hvv Rule' and write to Visum
+    _Stops_HVV = _stopcat_hvv()
+    SetMulti(Visum.Net.Stops, 'HKAT_HVV', _Stops_HVV['HKAT_HVV'].tolist(), True)
     _Stops = _Stops.merge(_Stops_HVV[['STOPNO', 'HKAT_HVV']], on='STOPNO', how='left')
 
     return _Stops
 
-def createPOICat(Visum):
-    if not any(i.AttValue("NAME") == param["poi"] for i in Visum.Net.POICategories.GetAll): # only True if poi == "New Category"
-        poi = Visum.Net.AddPOICategory()
-        poi.SetAttValue("NAME", param["poi"])
-        Visum.Log(20480,_("POI Category '%s' added") %(param["poi"]))
+def createPOICat(poiNAME):
+    '''
+    Erstelle POI-Kategorie falls noch nicht vorhanden.
 
-def createUDA(Visum):
+    Parameters
+    ----------
+    poiNAME : String
+        Name der POI-Kategorie, in die die ÖVGK-Polygone gespeichert werden sollen
+
+    Returns
+    -------
+    int
+        Nummer der zugehörigen POI-Kategorie
     '''
-    Erstelle die noch nicht vorhanden und benötigten BDA.
+    poiNO = next((i.AttValue("NO") for i in Visum.Net.POICategories.GetAll if i.AttValue("NAME") == poiNAME), None)
+    if not poiNO:
+        poi = Visum.Net.AddPOICategory()
+        poi.SetAttValue("NAME", poiNAME)
+        poiNO = poi.AttValue("NO")
+        Visum.Log(20480,_("POI-Category '%s' added") %(poiNAME))
+    return int(poiNO)
+
+def createUDA(poiNAME, poiNO):
     '''
-    poiNAME = param["poi"]
-    poiNO = next((i.AttValue("NO") for i in Visum.Net.POICategories.GetAll if i.AttValue("NAME") == poiNAME),None)
+    1. Fehlende BDA der Haltestellen
+    2. Fehöender BDA der POI-Kategorie
+
+    Parameters
+    ----------
+    poiNAME : String
+        Name der POI-Kategorie
+    poiNO : Integer
+        Nummer der POI-Kategorie
+
+    Returns
+    -------
+    None
+    '''
+    
     n = 0
-    for e, i in enumerate(["HKAT", "HKAT_HVV", "HKAT1", "HKAT2", "HKAT3"]):
-        if Visum.Net.Stops.AttrExists(i):
+    # Stops
+    for name in ["HKAT", "HKAT_HVV", "HKAT1", "HKAT2", "HKAT3"]:
+        if Visum.Net.Stops.AttrExists(name):
             continue
-        if e == 0:
-            Visum.Net.Stops.AddUserDefinedAttribute(i, "Haltestellenkategorie", "Haltestellenkategorie", 5)
-            uda = Visum.Net.Stops.Attributes.ItemByKey(i)
-            uda.Comment = _("Stop category (PT quality levels)")
-        elif e == 1:
-            Visum.Net.Stops.AddUserDefinedAttribute(i, "Haltestellenkategorie im hvv", "Haltestellenkategorie im hvv", 5)
-            uda = Visum.Net.Stops.Attributes.ItemByKey(i)
-            uda.Comment = _("Stop category 'hvv rule' (PT quality levels)")
+        if name == "HKAT":
+            label = "Haltestellenkategorie"
+            comment = _("Stop category (PT quality levels)")
+        elif name == "HKAT_HVV":
+            label = "Haltestellenkategorie im hvv"
+            comment = _("Stop category 'hvv rule' (PT quality levels)")
         else:
-            Visum.Net.Stops.AddUserDefinedAttribute(i, f"Haltestellenkategorie HstTyp {i[-1]}", f"Haltestellenkategorie HstTyp {i[-1]}", 5)
-            uda = Visum.Net.Stops.Attributes.ItemByKey(i)
-            uda.Comment = _("Stop category for Stop type %s (PT quality levels)" %(i[-1]))
+            label = f"Haltestellenkategorie HstTyp {name[-1]}"
+            comment = _("Stop category for Stop type %s (PT quality levels)") % name[-1]
+        Visum.Net.Stops.AddUserDefinedAttribute(name, label, label, 5)
+        uda = Visum.Net.Stops.Attributes.ItemByKey(name)
+        uda.Comment = comment
         uda.MaxStringLen = 4
         uda.StringValueDefault = "X"
-        n+=1
-    for uda_name in ["Szenario", "HKAT"]:
-        if not Visum.Net.POICategories.ItemByKey(poiNO).POIs.AttrExists(uda_name):
-            Visum.Net.POICategories.ItemByKey(poiNO).POIs.AddUserDefinedAttribute(uda_name, uda_name, uda_name, 5)
-            uda = Visum.Net.POICategories.ItemByKey(poiNO).POIs.Attributes.ItemByKey(uda_name)
-            uda.Comment = _("PT Qualities: %s") % uda_name
-            uda.MaxStringLen = 30
-            uda.StringValueDefault = "X"
-            n+=1
-    for uda_name in ["Distanz", "HTYP"]:
-        if not Visum.Net.POICategories.ItemByKey(poiNO).POIs.AttrExists(uda_name):
-            Visum.Net.POICategories.ItemByKey(poiNO).POIs.AddUserDefinedAttribute(uda_name, uda_name, uda_name, 1)
-            uda = Visum.Net.POICategories.ItemByKey(poiNO).POIs.Attributes.ItemByKey(uda_name)
-            uda.Comment = _("PT Qualities: %s") % uda_name
-            uda.ValueMax = 1500
-            uda.ValueDefault = -1
-            n+=1
+        n += 1
+    # POI-Cat
+    POIs = Visum.Net.POICategories.ItemByKey(poiNO).POIs
+    for name in ["Szenario", "HKAT"]:
+        if POIs.AttrExists(name):
+            continue
+        POIs.AddUserDefinedAttribute(name, name, name, 5)
+        uda = POIs.Attributes.ItemByKey(name)
+        uda.Comment = _("PT Qualities: %s") % name
+        uda.MaxStringLen = 30
+        uda.StringValueDefault = "X"
+        n += 1
+    for name in ["Distanz", "HTYP"]:
+        if POIs.AttrExists(name):
+            continue
+        POIs.AddUserDefinedAttribute(name, name, name, 1)
+        uda = POIs.Attributes.ItemByKey(name)
+        uda.Comment = _("PT Qualities: %s") % name
+        uda.ValueMax = 1500
+        uda.ValueDefault = -1
+        n += 1
     if n > 0:
-        Visum.Log(20480,_("%s UDA added (to POI Category: %s)") %(str(n), poiNAME))
-        
-def _stopcat_hvv(Visum):
-    _StopsDF = pd.DataFrame(Visum.Net.Stops.GetMultipleAttributes(
-        ["NO", "HKAT", "HKAT1", "HKAT2", "HKAT3"], True))
-    _StopsDF.columns = ["STOPNO", "HKAT", "HKAT1", "HKAT2", "HKAT3"]
+        Visum.Log(20480, _("%s UDA added (to POI-Category: %s)") %(n, poiNAME))
+
+
+def _stopcat_hvv():
+    '''
+    1. Lese HKAT und HKAT1 bis HKAT3 auf Stop-Ebene
+    2. Erstelle Dict mit römischen und lateinischen Zahlen
+    3. Wende hvv Regel an
+    4. Übertrage 
+
+    Returns
+    -------
+    _StopsDF : pandas DataFrame
+        Beinhaltet römische HKat je Stop nach 'hvv Regel'
+    '''
+    StopAttr = ["HKAT", "HKAT1", "HKAT2", "HKAT3"]
+    StopCatRoman = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+    _StopsDF = pd.DataFrame(Visum.Net.Stops.GetMultipleAttributes(["NO"] + StopAttr, True),columns=["STOPNO"] + StopAttr)
     
-    # Roman numeral conversion dictionaries
-    roman_to_int = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
-    int_to_roman = {v: k for k, v in roman_to_int.items()}
-    # Convert to integers
-    _StopsDF_int = _StopsDF.replace(roman_to_int).infer_objects(copy=False)
-    # Calculate new column
-    # in hvv: HKAT is (best from HKAT1 to HKAT3 minus 1) if worse than HKAT over all
-    _StopsDF['HKAT_HVV'] = (_StopsDF_int[['HKAT1', 'HKAT2', 'HKAT3']].min(axis=1) - 1).clip(lower=1)
-    _StopsDF['HKAT_HVV'] = _StopsDF_int[['HKAT']].join(_StopsDF['HKAT_HVV']).max(axis=1)
-    # Convert back to Roman
-    _StopsDF['HKAT_HVV'] = _StopsDF['HKAT_HVV'].map(int_to_roman)
-
-    _stopcat_hvv = _StopsDF['HKAT_HVV'].tolist()
-    SetMulti(Visum.Net.Stops, 'HKAT_HVV', _stopcat_hvv, True)
-
+    x = _StopsDF[StopAttr].replace({r: i for i, r in enumerate(StopCatRoman, 1)})
+    _StopsDF["HKAT_HVV"] = pd.concat([x["HKAT"],
+        (x[["HKAT1", "HKAT2", "HKAT3"]].min(axis=1) - 1).clip(lower=1)
+    ], axis=1).max(axis=1).map(dict(enumerate(StopCatRoman, 1)))
+    
     return _StopsDF
 
 
@@ -414,5 +535,7 @@ else:
         param = addInParam.Check(True, defaultParam)
         Run(param)
         addIn.ReportMessage(_("PT Quality levels: created!"), 2)
-    except:
+    except ValueError as e:
+        addIn.ReportMessage(str(e))
+    except Exception:
         addIn.HandleException(addIn.TemplateText.MainApplicationError)
